@@ -5,7 +5,7 @@ using System.Text.Json;
 
 namespace JevTest;
 
-public sealed class JevConnector : IDisposable
+public sealed class JevConnector : IJevDecisions, IDisposable
 {
     private readonly Uri endpoint;
     private readonly HttpClient httpClient;
@@ -59,16 +59,20 @@ public sealed class JevConnector : IDisposable
             httpClient.Dispose();
     }
 
-    public async Task<JevBooleanAnswer> AskAsync(CancellationToken cancellationToken = default)
+    public Task<JevBooleanAnswer> AskAsync(CancellationToken cancellationToken = default)
+        => AskAsync(State, Question, cancellationToken);
+
+    public async Task<JevBooleanAnswer> AskAsync(
+        string state, string question, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(State);
-        ArgumentException.ThrowIfNullOrWhiteSpace(Question);
+        ArgumentException.ThrowIfNullOrWhiteSpace(state);
+        ArgumentException.ThrowIfNullOrWhiteSpace(question);
 
         var (result, usage, duration) = await EvaluateWithMetadataAsync(
-            JsonSerializer.SerializeToElement(State),
+            JsonSerializer.SerializeToElement(state),
             JsonSerializer.SerializeToElement(new
             {
-                answer = new { type = "noul", instructions = Question }
+                answer = new { type = "noul", instructions = question }
             }),
             cancellationToken: cancellationToken);
 
@@ -83,26 +87,31 @@ public sealed class JevConnector : IDisposable
         return new JevBooleanAnswer(ReadProbability(answer, "noul"), usage, duration);
     }
 
-    public async Task<JevChoiceAnswer> ChooseAsync(CancellationToken cancellationToken = default)
+    public Task<JevChoiceAnswer> ChooseAsync(CancellationToken cancellationToken = default)
+        => ChooseAsync(State, Question, Choices, cancellationToken);
+
+    public async Task<JevChoiceAnswer> ChooseAsync(
+        string state, string question, IReadOnlyList<string> choices,
+        CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(State);
-        ArgumentException.ThrowIfNullOrWhiteSpace(Question);
-        ArgumentNullException.ThrowIfNull(Choices);
-        if (Choices.Count is < 1 or > 255)
-            throw new ArgumentException("Provide between 1 and 255 choices.", nameof(Choices));
+        ArgumentException.ThrowIfNullOrWhiteSpace(state);
+        ArgumentException.ThrowIfNullOrWhiteSpace(question);
+        ArgumentNullException.ThrowIfNull(choices);
+        if (choices.Count is < 1 or > 255)
+            throw new ArgumentException("Provide between 1 and 255 choices.", nameof(choices));
 
         var criteria = new Dictionary<string, string?>(StringComparer.Ordinal);
-        foreach (var option in Choices)
+        foreach (var option in choices)
         {
             if (string.IsNullOrWhiteSpace(option) || !criteria.TryAdd(option, null))
-                throw new ArgumentException("Choices must be unique and non-empty.", nameof(Choices));
+                throw new ArgumentException("Choices must be unique and non-empty.", nameof(choices));
         }
 
         var (result, usage, duration) = await EvaluateWithMetadataAsync(
-            JsonSerializer.SerializeToElement(State),
+            JsonSerializer.SerializeToElement(state),
             JsonSerializer.SerializeToElement(new
             {
-                answer = new { type = "choice", instructions = Question, criteria }
+                answer = new { type = "choice", instructions = question, criteria }
             }),
             cancellationToken: cancellationToken);
 
